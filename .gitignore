@@ -1,0 +1,5 @@
+# Ignore all
+*
+
+!.gitignore
+!model.py
