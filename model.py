@@ -16,9 +16,9 @@ INNER_DIM   = 1028
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("*********************************")
-print(f"DEVICE = {device}")
-print("*********************************")
+# print("*********************************")
+# print(f"DEVICE = {device}")
+# print("*********************************")
 
 
 class Embedding(nn.Module):
@@ -42,7 +42,7 @@ class PositionalEncoding(nn.Module):
 
     
     def forward(self, x):
-        batch_size, seq_length = x.shape
+        batch_size, _ = x.shape
         n = 10000
         for pos in range(self.seq_length):
             # for each dimension
@@ -90,8 +90,9 @@ class SelfAttention(nn.Module):
         v = self.Wv(x)
 
         normalization = (self.dims)**(-0.5)
-        attention_scores = F.softmax((q @ torch.transpose(k, 1, 2)) * normalization, dim=1) @ v
-        return attention_scores
+        attention_scores = F.softmax((torch.matmul(q, torch.transpose(k, 1, 2)) * normalization), dim=-1)
+        out = torch.matmul(attention_scores, v)
+        return out
 
 
 
@@ -232,7 +233,7 @@ class DecoderAttentionBlock(nn.Module):
         self.feed_forward                   = FeedForward(d_model, inner_dim)
 
 
-    def forward(self, encoder_output, x):
+    def forward(self, x, encoder_output):
         _, N, dims = x.shape
         
         x += self.multihead_attention(x)
@@ -253,6 +254,7 @@ class MaskedAttention(nn.Module):
         self.Wq = nn.Linear(in_features=d_model, out_features=dims)
         self.Wk = nn.Linear(in_features=d_model, out_features=dims)
         self.Wv = nn.Linear(in_features=d_model, out_features=dims)
+        self.mask = torch.triu(torch.ones((SEQ_LENGTH, SEQ_LENGTH))*float('-inf'), diagonal=1)
 
         self.dims = dims
         self.d_model = d_model
@@ -264,15 +266,13 @@ class MaskedAttention(nn.Module):
         k = self.Wk(x)
         v = self.Wv(x)
 
-        mask = torch.triu(torch.ones((T, T))*-1e12, diagonal=1)
         
         normalization = (self.dims)**(-0.5)
         # (( Q * Kt + mask ) / norm ) * V
-        attention_scores = F.softmax(((q @ torch.transpose(k, 1, 2)) + mask) * normalization, dim=2) @ v
-        
-        # (( Q * Kt ) / norm + mask) * V
-        # attention_scores = F.softmax(((q @ torch.transpose(k, 1, 2))*normalization + mask) , dim=2) @ v
-        return attention_scores
+        attention_scores = F.softmax((torch.matmul(q, torch.transpose(k, 1, 2)) * normalization), dim=-1)
+        out = torch.matmul(attention_scores, v)
+
+        return out
 
 
 # -------------------- TEST CODE -----------------------------------
@@ -336,8 +336,9 @@ class CrossAttention(nn.Module):
         v = self.Wv(encoder_output)
 
         normalization = (self.dims)**(-0.5)
-        attention_scores = F.softmax((q @ torch.transpose(k, 1, 2)) * normalization, dim=1) @ v
-        return attention_scores
+        attention_scores = F.softmax((torch.matmul(q, torch.transpose(k, 1, 2)) * normalization), dim=-1)
+        out = torch.matmul(attention_scores, v)
+        return out
 
 
 
@@ -408,16 +409,24 @@ class Transformer(nn.Module):
         y = self.input_embedding(y)*(self.d_model)**0.5 + self.positional_embedding(y) # multiply embeddings by sqrt(d_model)
         enc_out = self.encoder(x)
         dec_out = self.decoder(y, enc_out)
-        pre_softmax = self.input_embedding.input_embedding.weight @ torch.transpose(dec_out, 1, 2)
-        out = F.softmax(pre_softmax, dim=1)
-        out = torch.argmax(out, dim=1)
-        return out
+        pre_softmax = torch.matmul(self.input_embedding.input_embedding.weight, torch.transpose(dec_out, 1, 2))
+        return pre_softmax
+        # out = F.softmax(pre_softmax, dim=1)
+        # out = torch.argmax(out, dim=1)
 
 # -------------------- TEST CODE -----------------------------------
 # ------------------------------------------------------------------
-x = torch.randint(high=VOCAB_SIZE, size=(BATCH_SIZE, SEQ_LENGTH))
-y = torch.randint(high=VOCAB_SIZE, size=(BATCH_SIZE, SEQ_LENGTH))
-transformer = Transformer(d_model=D_MODEL, seq_length=SEQ_LENGTH, N=N, num_heads=NUM_HEADS, inner_dim=INNER_DIM, vocab_size=VOCAB_SIZE, batch_size=BATCH_SIZE)
-out = transformer(x, y)
+# x = torch.randint(high=VOCAB_SIZE, size=(BATCH_SIZE, SEQ_LENGTH))
+# y = torch.randint(high=VOCAB_SIZE, size=(BATCH_SIZE, SEQ_LENGTH))
+# transformer = Transformer(d_model=D_MODEL, seq_length=SEQ_LENGTH, N=N, num_heads=NUM_HEADS, inner_dim=INNER_DIM, vocab_size=VOCAB_SIZE, batch_size=BATCH_SIZE)
+
+
+# transformer = Transformer(batch_size=32, vocab_size=enc.n_vocab, d_model=256, N=4, num_heads=4, inner_dim=1024, 
+#                           seq_length=128)
+
+
+
+# out = transformer(x, y)
 # print(x.shape)
 # print(y.shape)
+# print(out.shape)
